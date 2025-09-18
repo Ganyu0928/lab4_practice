@@ -1,0 +1,279 @@
+---
+title: "Class4-missing data"
+author: "GANYU LIU"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Helpful information
+
+BRFSS codebook: <https://www.cdc.gov/brfss/annual_data/2021/pdf/codebook21_llcp-v2-508.pdf> We will use the following variables in this analysis:
+
+MEDCOST1 (1=Yes, 2=No, 7=Don’t know/Not sure, 9=Refused, Blank = not asked or missing) MARITAL (1=Married, 2=Divorced, 3=Widowed, 4=Separated, 5=Never married, 6=a member of an unmarried couple, 9=refused, Blank = not asked or missing)
+
+EMPLOY1\*\* (1=Employed for wages, 2=Self-employed, 3=Out of work for 1 year or more, 4=Out of work for \<1 year, 5=A homemaker, 6=A student, 7=Retired, 8=Unable to work, 9=Refused, Blank = not asked or missing)
+
+\_SEX (1 = Male, 2=Female)
+
+\_EDUCAG (1=Did not graduate high school, 2=Graduated high school, 3=Attended college or technical school, 4=Graduated from college or technical school, 9=Don’t know/Not sure/Missing)
+
+\_IMPRACE (1=White, Non-Hispanic , 2=Black, Non-Hispanic, 3=Asian, Non-Hispanic, 4=American Indian/Alaskan Native, Non-Hispanic, 5=Hispanic, 6=Other race, Hispanic)
+
+\_AGE80 (18-99) \_INCOMG1 (1=\<15000, 2=15000-\<25000, 3=25000-\<35000, 4=35000-\<50000, 5=50000-\<100000, 6=100000-\<200000, 7=200000 or more, 9=Don’t know/Not sure/Missing)
+
+\_BMI5 (1-9999, has 2 implied decimal places, calculated WTKG3/(HTM4\*HTM4), Blank= Don’t know/Refused/Missing)
+
+# Hypothetical question we are asking: Is income associated with BMI?
+
+## 1. Install packages and open libraries needed for importing data, managing data, and for imputations (code given).
+
+```{r}
+pacman::p_load(haven, tidyverse, naniar, VIM, mice, lattice, table1)
+
+```
+
+## 2. Import the first 10000 rows of LLCP2021.XPT (we are only importing 10K rows so everything is faster). Hints: the BRFSS file name has a space after the .XPT; use the read_xpt function (haven package); using help, look-up the argument for importing a set number of rows (code given).
+
+```{r}
+BRFSS2021 <-
+  read_xpt("LLCP2021.XPT ", n_max=10000)
+```
+
+## 3. Select the following variables (“MEDCOST1”, “MARITAL”, “EMPLOY1”, “\_SEX”, “\_EDUCAG”, “\_IMPRACE”, “\_AGE80”, “\_EDUCAG”, “\_INCOMG1”, “\_BMI5”) to create a smaller dataframe for missing data imputation. Rename variables (code given).
+
+```{r}
+# select variables of interest
+df<-BRFSS2021 %>%
+  select("MEDCOST1", "MARITAL", "EMPLOY1", "_SEX", "_EDUCAG",  "_IMPRACE", "_AGE80",  "_INCOMG1", "_BMI5") 
+
+# rename variables
+names(df) <- c("medical_cost", "marital", "employed", "sex", "education", "race", "age", "income", "bmi")
+```
+
+## 4. Replace 7 and 9’s as appropriate with NAs (see codebook). Conduct data management for variables (code given).
+
+```{r}
+df <- replace_with_na(df, replace = list(
+                               medical_cost = c(7,9),
+                               marital = c(9),
+                               employed = c(9),
+                               sex = c(7,9),
+                               education = c(9),
+                               race = c(7,9),
+                               income = c(9)))
+
+df$medical_cost <- factor(df$medical_cost, levels = c(1,2), labels = c("Yes", "No"))
+df$marital <- factor(df$marital, levels = c(1:6), labels = c("Married", "Divorced", "Widowed", "Separated", "Never married", "A member of an unmarried couple"))
+df$employed <- factor(df$employed, levels = c(1:8), labels = c("Employed for wages", "Self-employed","Out of work for 1 year or more","Out of work for < 1 year", "A homemaker","A student", "Retired", "Unable to work"))
+df$sex <- factor(df$sex, levels = c(1:2), labels = c("Male", "Female"))
+df$education <- factor(df$education, levels = c(1:4), labels = c("Did not graduate High School", "Graduated High School","Attended College or Technical School","Graduated from College or Technical School"))
+df$race <- factor(df$race, levels = c(1:6), labels = c("White, Non-Hispanic","Black, Non-Hispanic","Asian, Non-Hispanic","American Indian/Alaskan Native, Non-Hispanic","Hispanic","Other race, Non-Hispanic"))
+df$income <- factor(df$income, levels = c(1:7), labels =  c("Less than $15,000", "$15,000 to < $25,000", "$25,000 to < $35,000", "$35,000 to < $50,000", "$50,000 to < $100,000", "$100,000 to < $200,000", "$200,000 or more"))
+
+table(df$medical_cost, useNA = "always")
+table(df$marital, useNA = "always")
+table(df$sex, useNA = "always")
+table(df$employed, useNA = "always")
+table(df$education, useNA = "always")
+table(df$race, useNA = "always")
+table(df$income,  useNA = "always")
+```
+
+## 5. Understanding the data
+
+### a. Get a summary of each variable in the dataframe to determine how much missing data there is for each variable (code given).
+
+```{r}
+summary(df)
+
+```
+
+### b. Create a variable for missing BMI (bmi_miss) our outcome of interest (code given).
+
+```{r}
+df$bmi_miss <- ifelse(is.na(df$bmi), 1, 0)
+# check new variable
+table(df$bmi_miss)
+# 0: 9187 1:813 (813 are missing)
+```
+
+### c. Use the table1 function (code provided below to examine differences between those with missing data and those without missing data) (code given). Comment on what differences you see.
+
+```{r}
+# Run a table 1 to look at differences on other variables between those with missing and non-missing BMI
+table1(~medical_cost + age + employed + sex + education + race + income|bmi_miss, df)
+
+```
+
+## 5. Examine missing data patterns using md.pattern. What variable has the most missing data? Which has the least? How many people have the following missing data pattern–complete on all variables except medical_cost and income?
+
+```{r fig.width=20}
+md.pattern(df, rotate.name=TRUE)
+```
+
+- blue = not missing, red = missing
+
+- the # in the left column are the # of obs with each pattern
+
+- the # in the right column are the # of var missing for that pattern
+
+- the # in the bottom row is the # obs with missing values for the variable indicated in the top row
+
+- the # in the bottom right corner is the total number of missing values in the dataset
+
+- income has the most missing data
+
+- medical-cost has the least missing data: 42 
+- no-missing data: 7443
+
+- 20 people/observations: 
+  20     1    1   1        1            1         1       1        0   1      1    1
+
+
+## 6. Create margin plot or BMI and income to see how missing values on one variable relate to values on another variable. Comment on what you see.
+
+```{r}
+marginplot(df %>% select(income, bmi),
+           cex=1,
+           cex.lab=1,
+           cex.numbers = 0.7,
+           pch = 20)
+```
+- blue dots in the scatterplot represent observed value for both bmi and income (n=7443). 
+The red dots on the vertical axis represent observed values for bmi that are missing for income, the red dots on the horizontal axis indicate observed values for income that are missing for bmi. The maroon 463 indicates 463 records for which both bmi and income are missing. It corresponds to the maroon dot where we dont have any data for both bmi or income.
+The red 813 is the total # of records missing data for bmi;
+the red 2129 is the total # of records missing data for income;
+
+## Look at the distribution of one variable according to missing non-missing status for another variable using pbox (VIM package)
+```{r}
+pbox(df, pos=2)
+```
+the mean value in miss in income higher than obs. in income, also in employed. Possiblely people dont want to report their income.
+
+## 7. Conduct the imputation creating 10 imputation dataframes and setting the seed as 600. Print the imputation results. Note if it does not work for you, try looking up how to remove the labels from the df (using the sjlabelled package) and then rerun the imputation code. What method was used to impute BMI?
+
+```{r}
+imp <- mice(df,
+            m=10,
+            maxit=5,
+            seed=100000)
+
+imp
+```
+
+## 8. Diagnostics for imputation model: Are the imputed values plausible for BMI plausible (determine qualitatively by printing the imputed values)? The below shows the code for printing a variable within a dataframe called imp within the imp list. Comment on plausibility.
+
+```{r}
+head(imp$imp$bmi)
+
+```
+- rows = the cases that were missing bmi
+- col = each imputation 
+- entries = the imputed values of bmi
+values are all within a realistic bmi range (20-35), the imputations vary across datasets which means it capturing unvertainty.
+The results shows imputed bmi values are plausible bc they fall within the expected human bmi range, vary across imputations, reflecting uncertainty instead of fixed values, and are consistent with the observed bmi distributions.
+
+## 9. Obtain the long dataframe with all the imputation dataframes and plot a box plot of BMI by imputation. Note: use x = as.factor(.imp) with backticks around .imp as the x variable for ggplot. Describe any notable differences (if any) between box plots.
+```{r}
+imp1 <- mice:: complete(data=imp, action=1)# action gives the imputation number you want. In this case the first imputation dataframe
+longimp <- mice:: complete(data=imp, action="long") # To get all the imputations in one dataframe provide the action "long". Two columns are added: 1) .imp, integer, referring the imputation number, and 2) .id, integer, the id number in the original dataframe
+longimp
+
+ggplot(longimp, aes(x = as.factor(`.imp`), y = bmi)) +
+  geom_boxplot(fill = "skyblue") +
+  labs(
+    x = "Imputation Number (.imp)",
+    y = "BMI",
+    title = "Distribution of BMI Across Imputed Datasets"
+  )
+
+
+```
+The boxplots of BMI across imputations show consistent medians and interquartile ranges across all datasets, indicating stable imputations. While small variations in spread are observed across imputations (e.g., slightly narrower in imputation 2 and wider in imputations 7 and 10), this reflects the intended uncertainty incorporated by multiple imputation. Importantly, all BMI values fall within a plausible range (20–35), suggesting the imputed values are realistic and the model is performing appropriately.
+
+## 10. Use stripplot to look at scatterplots of BMI by imputation. Do you see any notable patterns between imputations? Are the imputed data points within the range of the non-imputed data points?
+```{r}
+stripplot(x=imp, # mids obj)
+          data=age + income +bmi +bmi_miss ~.imp, 
+          jit=TRUE,
+          pch=c(1,20),
+          xlab="Blue = non-missing, imputation numbers")
+```
+- age and hyp are good
+- chl: they are not clustered at a single value, which means the model is capturing variability properly
+- bmi: imputed BMI values are plausible and consistent with observed data
+
+## 11. Run a linear regression using the non-imputed dataframe (i.e. a complete case analysis) modeling BMI as a function of income and two other predictors of your choice. Get a summary of the results.
+```{r}
+fit <- lm(bmi ~ age + income, data = df)
+nobs(fit)         # number of complete cases
+fit
+summary(fit) # get model summary results
+```
+Sample size: 7,521 complete cases (2,479 dropped due to missingness).
+
+Model fit:
+
+R² = 0.0042 (very small, <1% variance explained).
+
+F-test significant (p < 0.0001), meaning the model overall is statistically significant, but not practically strong.
+
+Age:
+
+Each additional year of age is associated with a slight decrease in BMI (β = -1.16, p = 0.012).
+
+Income:
+
+Most income categories are not significantly different from the reference group.
+
+Exception: those earning $200,000 or more had substantially lower BMI compared to the reference category (β = -147.1, p = 0.0014).
+
+## 12. Now run a linear regression using the imputed data with the same variables as above. Pool the regression coefficents and standard errors and obtain a summary.
+```{r}
+fit_i <- with(imp, lm(bmi ~ age + income, data = df))
+summary(fit_i)
+```
+Intercept: 2970.0 (baseline BMI for reference income group, age = 0).
+
+Age: -1.16 (SE = 0.46, p = 0.012) → each additional year of age is associated with a slight decrease in BMI.
+
+Income:
+
+Most income categories (15k–200k) → not significant (p > 0.05).
+
+Highest income group ($200,000 or more) → significantly lower BMI (β = -147.1, p = 0.0014).
+
+Both complete case and imputed analysis show:
+
+Age is negatively associated with BMI.
+
+The highest income group has significantly lower BMI.
+
+Other income categories are not significant.
+
+Estimates are nearly identical → this suggests missing data did not dramatically bias the results, and MI confirmed the complete case findings.
+
+```{r}
+fit_i <- summary(pool(fit_i))
+fit_i
+```
+
+## 13. Compare the income coefficients between the complete case analysis and the imputed data analysis qualitatively and comment on whether there are any meaningful differences
+
+```{r}
+complete_case <-lm(bmi ~ age + income, data = df)
+# bmi = b0+b1(age)+b2(income)+e
+summary(complete_case)
+```
+income coefficients ranged from +15.8 to 50.9 for most groups but none were statistically signifiant.
+the highest income group over 200,000 had a significant negative association with bmi, b = -147.1 p=0.00138
+imputed results (n=10,000 after inputation)
+coefficients were very similar in magnitude and direction to complete case analysis 
+the highest income group consistently showed a significant negative assocation with bmi
+
+income over 200,000 or more = -147.1, for every one unit increase in income, then mean bmi decreased 147.1
+this compares to the imputed data value for income bate of -147.091729, are the same.
